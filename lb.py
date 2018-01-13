@@ -98,7 +98,7 @@ def latest_time(p):
     return max(times)
 
 
-def calc_task_time(server_type, task_type, task_time):
+def calc_task_time(server_type: str, task_type: str, task_time: int) -> int:
     if server_type == SERVER_VIDEO_TYPE:
         if task_type == TASK_MUSIC_TYPE:
             return task_time * 2
@@ -110,8 +110,8 @@ def calc_task_time(server_type, task_type, task_time):
     return task_time
 
 
-def expected_end_time(server_type, task_list,
-                      start_time)
+def expected_end_time(server_type: str, task_list: [(bytes, socket.socket, int)],
+                      start_time: datetime.datetime) -> datetime.datetime:
     work_time = 0
 
     for task in task_list:
