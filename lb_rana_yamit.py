@@ -19,16 +19,60 @@ q_first = queue.Queue()
 q_second = queue.Queue()
 q_third = queue.Queue()
 
+def sched(tasks):
+    begin_time = datetime.datetime.now() + datetime.timedelta(weeks=1)
+    best_perm = []
+    arr_permutation = [([], [], [])]
 
-def q_add(buffer, client_socket):
+    for t in tasks:
+        arr_permutation = apply_tasks(arr_permutation, t)
+
+    permutations = [(last_t(p), p) for p in arr_permutation]
+
+    for (t, p) in permutations:
+        if t < begin_time:
+            begin_time = t
+            best_perm = p
+
+    opt_perm(best_perm)
+
+    sec = (begin_time - datetime.datetime.now()).seconds
+    perm_to_print = ([task[0] for task in best_perm[0]],
+                      [task[0] for task in best_perm[1]],
+                      [task[0] for task in best_perm[2]])
+	print('opt permutation: %s, finish time %s (%s seconds)' % (perm_to_print, begin_time, secs))
+
+    return best_perm
+
+def apply_tasks(list, task):
+    res = []
+
+    for t in list:
+        curr = (t[0][:], t[1][:], t[2][:])
+        curr[0].append(task)
+        res.append(curr)
+
+        curr = (t[0][:], t[1][:], t[2][:])
+        curr[1].append(task)
+        res.append(curr)
+
+        curr = (t[0][:], t[1][:], t[2][:])
+        curr[2].append(task)
+        res.append(curr)
+
+    return res
+
+
+######## Queue functions ######
+def q_add(buff, client_socket):
     q_lock.acquire()
-    task = buffer.decode("utf-8")
+    task = buff.decode("utf-8")
 
     tasks = []
     for q in [q_first, q_second, q_third]:
-        queue_get_all(q, tasks)
+        q_get(q, tasks)
 
-    tasks.append((buffer, client_socket, int(task[1])))
+    tasks.append((buff, client_socket, int(task[1])))
 
     (tasks_of_1, tasks_of_2, tasks_of_3) = sched(tasks)
     for task in tasks_of_1:
@@ -40,50 +84,25 @@ def q_add(buffer, client_socket):
     q_lock.release()
 
 
-def sched(tasks):
-    min_latest_time = datetime.datetime.now() + datetime.timedelta(weeks=1)
-    best_perm = []
-    perm_list = [([], [], [])]
-
-    for t in tasks:
-        perm_list = assign_jobs(perm_list, t)
-
-    perms_with_times = [(latest_time(p), p) for p in perm_list]
-
-    for (time, p) in perms_with_times:
-        if time < min_latest_time:
-            min_latest_time = time
-            best_perm = p
-
-    optimize_permutation(best_perm)
-
-    seconds = (min_latest_time - datetime.datetime.now()).seconds
-    printable_perm = ([task[0] for task in best_perm[0]],
-                      [task[0] for task in best_perm[1]],
-                      [task[0] for task in best_perm[2]])
-
-    return best_perm
-
-
-def queue_get_all(q, tasks):
+def q_get(q, tasks):
     while 1:
         try:
             tasks.append(q.get_nowait())
         except queue.Empty:
             break
 
+############## Time functions ################
+def last_t(p):
 
-def latest_time(p):
+    t = []
+    for i in range(SERVERS_NUM):
+        final = when_will_end(SERVER_TYPES[i], p[i], exp[i])
+        t.append(final)
 
-    times = []
-    for index in range(SERVERS_NUM):
-        end_time = expected_end_time(SERVER_TYPES[index], p[index], exp[index])
-        times.append(end_time)
-
-    return max(times)
+    return max(t)
 
 
-def calc_task_time(server_type: str, task_type: str, task_time: int) -> int:
+def task_find_time(server_type: str, task_type: str, task_time: int) -> int:
     if server_type == VIDEO_S:
         if task_type == MUSIC:
             return task_time * 2
@@ -95,58 +114,39 @@ def calc_task_time(server_type: str, task_type: str, task_time: int) -> int:
     return task_time
 
 
-def expected_end_time(server_type: str, task_list: [(bytes, socket.socket, int)],
-                      start_time: datetime.datetime) -> datetime.datetime:
-    work_time = 0
+def when_will_end(server_type: str, tasks: [(bytes, socket.socket, int)],
+                      begin: datetime.datetime) -> datetime.datetime:
+    time_job = 0
 
-    for task in task_list:
+    for task in tasks:
         t_type = chr(task[0][0])
         t_time = task[2]
-        work_time += calc_task_time(server_type, t_type, t_time)
+        time_job += task_find_time(server_type, t_type, t_time)
 
-    if start_time < datetime.datetime.now():
-        start_time = start_time.now()
+    if begin < datetime.datetime.now():
+        begin = begin.now()
 
-    return start_time + datetime.timedelta(seconds=work_time)
+    return begin + datetime.timedelta(seconds=time_job)
 
-
-def optimize_permutation(perm):
-    for index in range(len(perm)):
-        task_list = perm[index]
-        if len(task_list) > 1:
-            task_list.sort(key=lambda t: calc_task_time(SERVER_TYPES[index], chr(t[0][0]), t[2]))
-
-
-def assign_jobs(tuple_list, job):
-    ret_val = []
-
-    for t in tuple_list:
-        new_tup = (t[0][:], t[1][:], t[2][:])
-        new_tup[0].append(job)
-        ret_val.append(new_tup)
-
-        new_tup = (t[0][:], t[1][:], t[2][:])
-        new_tup[1].append(job)
-        ret_val.append(new_tup)
-
-        new_tup = (t[0][:], t[1][:], t[2][:])
-        new_tup[2].append(job)
-        ret_val.append(new_tup)
-
-    return ret_val
+######################## Scheduling #################
+def opt_perm(perm):
+    for i in range(len(perm)):
+        tasks = perm[i]
+        if len(tasks) > 1:
+            tasks.sort(key=lambda t: task_find_time(SERVER_TYPES[i], chr(t[0][0]), t[2]))
 
 
-def schedule_request(client_socket):
-    buffer = client_socket.recv(2)
-    print("received ", buffer.decode("utf-8"), " from ", client_socket.getpeername())
-    q_add(buffer, client_socket)
+def ask_for_sched(client_socket):
+    buff = client_socket.recv(2)
+    print("receive ", buff.decode("utf-8"), " from ", client_socket.getpeername())
+    q_add(buff, client_socket)
 
 
-def handle_task(task_queue, srv_socket, server_index):
+def thread_h(task_queue, server_socket, server_index):
     while True:
         q_lock.acquire()
         try:
-            (buffer, client_socket, task_time) = task_queue.get_nowait()
+            (buff, client_socket, task_time) = task_queue.get_nowait()
         except queue.Empty:
             q_lock.release()
             continue
@@ -154,15 +154,17 @@ def handle_task(task_queue, srv_socket, server_index):
         q_lock.release()
         peer_name = str(client_socket.getpeername())
 
-        srv_socket.sendall(buffer)
+        server_socket.sendall(buff)
 
-        buffer_from_server = srv_socket.recv(2)
+        server_buff = server_socket.recv(2)
 
         exp[server_index] = datetime.datetime.now()
 
-        client_socket.sendall(buffer_from_server)
+        client_socket.sendall(server_buff)
 
         client_socket.close()
+##################################################
+
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -177,9 +179,9 @@ socket_second.connect(("192.168.0.102", 80))
 socket_third = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 socket_third.connect(("192.168.0.103", 80))
 
-thread_first = threading.Thread(args=(q_first, socket_first, 0), target=handle_task)
-thread_second = threading.Thread(args=(q_second, socket_second, 1), target=handle_task)
-thread_third = threading.Thread(args=(q_third, socket_third, 2), target=handle_task)
+thread_first = threading.Thread(args=(q_first, socket_first, 0), target=thread_h)
+thread_second = threading.Thread(args=(q_second, socket_second, 1), target=thread_h)
+thread_third = threading.Thread(args=(q_third, socket_third, 2), target=thread_h)
 
 thread_first.start()
 thread_second.start()
@@ -189,4 +191,4 @@ while True:
 
     (sockToClient, address) = server_socket.accept()
 
-    schedule_request(sockToClient)
+    ask_for_sched(sockToClient)
