@@ -1,5 +1,4 @@
 #!/bin/bash
 
-#sudo python exampleLB.pyc
 sudo python3 lb.py
 
