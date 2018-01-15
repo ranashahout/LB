@@ -1,5 +1,3 @@
 #!/bin/bash
 
-#sudo python exampleLB.pyc
-sudo python3 lb.py
-
+sudo python3 lb_rana_yamit.py
