@@ -3,17 +3,18 @@ import queue
 import socket
 import threading
 
-TASK_PICTURE_TYPE = 'P'
-TASK_VIDEO_TYPE = 'V'
-TASK_MUSIC_TYPE = 'M'
-SERVER_MUSIC_TYPE = 'M'
-SERVER_VIDEO_TYPE = 'V'
-SERVER_COUNT = 3
-SERVER_TYPES = [SERVER_VIDEO_TYPE, SERVER_VIDEO_TYPE, SERVER_MUSIC_TYPE]
-q_lock = threading.Lock()
-now = datetime.datetime.now()
 
-expected_finish = [now, now, now]
+MUSIC_S = 'M'
+VIDEO_S = 'V'
+SERVERS_NUM = 3
+VIDEO = 'V'
+PIC = 'P'
+MUSIC = 'M'
+SERVER_TYPES = [VIDEO_S, VIDEO_S, MUSIC_S]
+q_lock = threading.Lock()
+current = datetime.datetime.now()
+
+exp = [current, current, current]
 q_first = queue.Queue()
 q_second = queue.Queue()
 q_third = queue.Queue()
@@ -21,45 +22,31 @@ q_third = queue.Queue()
 
 def q_add(buffer, client_socket):
     q_lock.acquire()
-    # print("acquired queue lock")
-
-    q_update(buffer, client_socket)
-    q_lock.release()
-
-
-def q_update(buffer, client_socket):
     task = buffer.decode("utf-8")
-    # get all waiting tasks from queues.
+
     tasks = []
     for q in [q_first, q_second, q_third]:
         queue_get_all(q, tasks)
 
     tasks.append((buffer, client_socket, int(task[1])))
 
-    # print("pending tasks: %s" % tasks)
-    # schedule tasks to servers from scratch
-    (srv1_tasks, srv2_tasks, srv3_tasks) = schedule_tasks(tasks)
-    for task in srv1_tasks:
+    (tasks_of_1, tasks_of_2, tasks_of_3) = sched(tasks)
+    for task in tasks_of_1:
         q_first.put(task)
-    for task in srv2_tasks:
+    for task in tasks_of_2:
         q_second.put(task)
-    for task in srv3_tasks:
+    for task in tasks_of_3:
         q_third.put(task)
-
-    # print("srv1_tasks: %s " % srv1_tasks)
-    # print("srv2_tasks: %s " % srv2_tasks)
-    # print("srv3_tasks: %s " % srv3_tasks)
+    q_lock.release()
 
 
-def schedule_tasks(tasks):
+def sched(tasks):
     min_latest_time = datetime.datetime.now() + datetime.timedelta(weeks=1)
     best_perm = []
     perm_list = [([], [], [])]
 
     for t in tasks:
         perm_list = assign_jobs(perm_list, t)
-
-    # print("made all permutations")
 
     perms_with_times = [(latest_time(p), p) for p in perm_list]
 
@@ -75,7 +62,6 @@ def schedule_tasks(tasks):
                       [task[0] for task in best_perm[1]],
                       [task[0] for task in best_perm[2]])
 
-    # print('best permutation optimized: %s with finish time %s (%s seconds from now)' % (printable_perm, min_latest_time, seconds))
     return best_perm
 
 
@@ -88,24 +74,23 @@ def queue_get_all(q, tasks):
 
 
 def latest_time(p):
-    # p is a tuple of 3 lists of tasks (which are tuples): ([tasks], [tasks], [tasks])
 
     times = []
-    for index in range(SERVER_COUNT):
-        end_time = expected_end_time(SERVER_TYPES[index], p[index], expected_finish[index])
+    for index in range(SERVERS_NUM):
+        end_time = expected_end_time(SERVER_TYPES[index], p[index], exp[index])
         times.append(end_time)
 
     return max(times)
 
 
 def calc_task_time(server_type: str, task_type: str, task_time: int) -> int:
-    if server_type == SERVER_VIDEO_TYPE:
-        if task_type == TASK_MUSIC_TYPE:
+    if server_type == VIDEO_S:
+        if task_type == MUSIC:
             return task_time * 2
-    else:  # server is music type
-        if task_type == TASK_VIDEO_TYPE:
+    else: 
+        if task_type == VIDEO:
             return task_time * 3
-        elif task_type == TASK_PICTURE_TYPE:
+        elif task_type == PIC:
             return task_time * 2
     return task_time
 
@@ -165,35 +150,26 @@ def handle_task(task_queue, srv_socket, server_index):
         except queue.Empty:
             q_lock.release()
             continue
-        expected_finish[server_index] = datetime.timedelta(seconds=task_time) + datetime.datetime.now()
+        exp[server_index] = datetime.timedelta(seconds=task_time) + datetime.datetime.now()
         q_lock.release()
         peer_name = str(client_socket.getpeername())
-        # print("removed task %s from %s from queue %s" % (buffer.decode("utf-8"), peer_name, task_queue))
 
         srv_socket.sendall(buffer)
-        # print("sent %s to %s" % (buffer.decode("utf-8"), srv_socket.getpeername()))
 
         buffer_from_server = srv_socket.recv(2)
-        # print("received %s from %s" % (buffer_from_server.decode("utf-8"), srv_socket.getpeername()))
 
-        expected_finish[server_index] = datetime.datetime.now()
+        exp[server_index] = datetime.datetime.now()
 
         client_socket.sendall(buffer_from_server)
-        # print("sent %s back to %s" % (buffer_from_server.decode("utf-8"), peer_name))
 
         client_socket.close()
-        # print("closed TCP client socket %s" % peer_name)
-
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-# bind the socket to a public host, and a well-known port
 server_socket.bind(("10.0.0.1", 80))
-# become a server socket
 server_socket.listen(5)
 
-# create an INET, STREAMing socket
 socket_first = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 socket_first.connect(("192.168.0.101", 80))
 socket_second = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -210,8 +186,7 @@ thread_second.start()
 thread_third.start()
 
 while True:
-    # accept connections from outside
+
     (sockToClient, address) = server_socket.accept()
-    # now do something with the clientsocket
-    # in this case, we'll pretend this is a threaded server
+
     schedule_request(sockToClient)
